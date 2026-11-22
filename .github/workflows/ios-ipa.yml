@@ -1,0 +1,58 @@
+# [Claude 23/11/2569 ios · ย้ายมารีโปสาธารณะ ใช้ Mac ฟรี] สร้างไฟล์ IPA แบบไม่เซ็นของแอป Class4RO บน Mac ของ GitHub (owner แจกผ่านเว็บรับเซ็น IPA เอง)
+# ขั้นตอน: scripts/Build-Class4UnityIos.ps1 (export Xcode บน Windows) -> อัป tar.gz ขึ้นเซิร์ฟ -> push ios-build/request.json ไป branch ios-build
+# ผล: GitHub Release แบบ prerelease ชื่อ ios-<version>-<run> มีไฟล์ Class4RO-<version>-unsigned.ipa
+name: ios-ipa
+on:
+  push:
+    branches: [main]
+    paths: ['ios-build/request.json']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  ipa:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ios-build
+      - name: Download Xcode project
+        run: |
+          set -euo pipefail
+          VER=$(python3 -c "import json;print(json.load(open('ios-build/request.json'))['version'])")
+          URL=$(python3 -c "import json;print(json.load(open('ios-build/request.json'))['url'])")
+          SHA=$(python3 -c "import json;print(json.load(open('ios-build/request.json'))['sha256'])")
+          [[ "$VER" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "bad version"; exit 1; }
+          [[ "$URL" == https://play.class4-ro.net/* ]] || { echo "bad url"; exit 1; }
+          echo "VER=$VER" >> "$GITHUB_ENV"
+          curl -fL --retry 3 -o xcode.tar.gz "$URL"
+          echo "$SHA  xcode.tar.gz" | shasum -a 256 -c -
+          tar -xzf xcode.tar.gz
+          rm xcode.tar.gz
+      - name: Archive (unsigned)
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          cd "xcode-$VER"
+          xcodebuild -project Unity-iPhone.xcodeproj -scheme Unity-iPhone -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -archivePath "$GITHUB_WORKSPACE/build/Class4RO.xcarchive" archive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
+            | tail -n 80
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          mkdir -p Payload
+          cp -R build/Class4RO.xcarchive/Products/Applications/*.app Payload/
+          zip -qry "Class4RO-$VER-unsigned.ipa" Payload
+          ls -la ./*.ipa
+          shasum -a 256 ./*.ipa
+      - name: Publish release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "ios-$VER-${{ github.run_number }}" "Class4RO-$VER-unsigned.ipa" \
+            --repo "${{ github.repository }}" --target "${{ github.sha }}" --prerelease \
+            --title "iOS $VER (unsigned IPA)" --notes "ไฟล์ IPA ยังไม่เซ็น สำหรับอัปเว็บรับเซ็น · สร้างจาก ${{ github.sha }}"
