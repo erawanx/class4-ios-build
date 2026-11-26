@@ -23,7 +23,7 @@ jobs:
           VER=$(python3 -c "import json;print(json.load(open('ios-build/request.json'))['version'])")
           URL=$(python3 -c "import json;print(json.load(open('ios-build/request.json'))['url'])")
           SHA=$(python3 -c "import json;print(json.load(open('ios-build/request.json'))['sha256'])")
-          [[ "$VER" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "bad version"; exit 1; }
+          [[ "$VER" =~ ^[0-9]+(\.[0-9]+){1,2}$ ]] || { echo "bad version"; exit 1; }
           [[ "$URL" == https://play.class4-ro.net/* ]] || { echo "bad url"; exit 1; }
           echo "VER=$VER" >> "$GITHUB_ENV"
           curl -fL --retry 3 -o xcode.tar.gz "$URL"
